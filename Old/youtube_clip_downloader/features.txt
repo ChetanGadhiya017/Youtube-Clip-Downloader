@@ -1,9 +1,0 @@
-✅ Paste URL(s)
-✅ Multi-segments (per video)
-✅ List available Video/Audio qualities
-✅ Select output folder → Remember last used folder
-✅ Progress bar + Estimated Time Remaining
-✅ History of past downloads
-✅ Pause/Resume button (advanced)
-✅ Batch URL download (future feature → FULL BATCH MODE)
-✅ Input box: Number of simultaneous downloads (concurrent downloads) → Software should manage that dynamically

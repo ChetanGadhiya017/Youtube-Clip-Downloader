@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+build/
+dist/
+
+# Local app data / downloads
+history.json
+downloads/
+
+# Bundled binaries (install ffmpeg separately)
+ffmpeg*/
+*.exe
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+tempCodeRunnerFile.py
