@@ -107,3 +107,90 @@ def test_progress_from_hook():
     assert p.percent == 25 and p.speed == "2.0 MB/s" and p.eta == "00:01:05"
     assert progress_from_hook({"status": "finished"}).percent == 100
     assert progress_from_hook({"status": "downloading", "downloaded_bytes": 5}).percent == 0
+
+
+# ------------------------------------------------------------------ v3
+from smart_clip_downloader.core import (  # noqa: E402
+    extract_urls,
+    human_count,
+    human_duration,
+    is_playlist_url,
+    parse_info,
+    parse_rate,
+    playlist_entries,
+    video_id,
+)
+
+
+def test_formats_subtitles_and_extras_in_options():
+    req = ClipRequest("https://youtu.be/x", quality="720p", video_format="mkv", subtitles=("en", " hi "),
+                      embed_thumbnail=True, rate_limit="2M", cookies_browser="firefox")
+    opts = build_ydl_options(req)
+    keys = [p["key"] for p in opts["postprocessors"]]
+    assert opts["merge_output_format"] == "mkv"
+    assert opts["subtitleslangs"] == ["en", "hi"] and "FFmpegEmbedSubtitle" in keys
+    assert "EmbedThumbnail" in keys and "FFmpegMetadata" in keys
+    assert opts["ratelimit"] == 2 * 1024 * 1024
+    assert opts["cookiesfrombrowser"] == ("firefox",)
+    assert opts["continuedl"] is True
+
+
+def test_audio_format_choice():
+    opts = build_ydl_options(ClipRequest("https://youtu.be/x", quality="audio-192k", audio_format="opus"))
+    pp = opts["postprocessors"][0]
+    assert pp == {"key": "FFmpegExtractAudio", "preferredcodec": "opus", "preferredquality": "192"}
+    assert "writesubtitles" not in opts
+
+
+@pytest.mark.parametrize("kwargs", [
+    {"video_format": "avi"}, {"audio_format": "aac"}, {"rate_limit": "fast"},
+    {"filename_template": "../evil"}, {"filename_template": "C:/x"}, {"filename_template": "/abs"},
+])
+def test_invalid_v3_fields(kwargs):
+    with pytest.raises(ClipError):
+        ClipRequest("https://youtu.be/x", **kwargs)
+
+
+def test_custom_filename_template(tmp_path):
+    req = ClipRequest("https://youtu.be/x", 5, 9, output_dir=str(tmp_path), filename_template="%(uploader)s - %(title)s")
+    assert output_template(req).endswith("%(uploader)s - %(title)s [00.00.05-00.00.09].%(ext)s")
+
+
+def test_parse_rate():
+    assert parse_rate("500K") == 512000 and parse_rate("1.5m") == int(1.5 * 1024**2) and parse_rate("100") == 100
+
+
+def test_url_helpers():
+    assert video_id("https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=10") == "dQw4w9WgXcQ"
+    assert video_id("https://youtu.be/dQw4w9WgXcQ") == "dQw4w9WgXcQ"
+    assert video_id("https://youtube.com/shorts/abcdefghijk") == "abcdefghijk"
+    assert is_playlist_url("https://www.youtube.com/playlist?list=PL123")
+    assert is_playlist_url("https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PL123")
+    assert not is_playlist_url("https://youtu.be/dQw4w9WgXcQ")
+    text = "see https://youtu.be/AAAAAAAAAAA, and (https://www.youtube.com/watch?v=BBBBBBBBBBB) https://youtu.be/AAAAAAAAAAA"
+    assert extract_urls(text) == ["https://youtu.be/AAAAAAAAAAA", "https://www.youtube.com/watch?v=BBBBBBBBBBB"]
+    assert extract_urls("https://example.com/video") == []
+
+
+def test_parse_info_and_qualities():
+    info = {
+        "title": "Demo", "uploader": "Chan", "duration": 125, "thumbnail": "https://i/x.jpg",
+        "formats": [{"height": 360, "vcodec": "avc"}, {"height": 1080, "vcodec": "vp9"}, {"height": None, "vcodec": "none"}],
+        "subtitles": {"en": []}, "automatic_captions": {"hi": []}, "view_count": 1234567,
+    }
+    v = parse_info(info, "https://youtu.be/x")
+    assert v.heights == [360, 1080] and v.best_height == 1080
+    assert v.subtitles == ["en", "hi"] and v.channel == "Chan"
+    q = v.available_qualities()
+    assert "1080p" in q and "1440p" not in q and q[0] == "best" and "audio-320k" in q
+    assert human_duration(125) == "02:05" and human_duration(3725) == "01:02:05"
+    assert human_count(1234567) == "1.2M" and human_count(999) == "999"
+
+
+def test_playlist_entries():
+    info = {"entries": [{"id": "AAAAAAAAAAA", "title": "One", "url": "AAAAAAAAAAA"},
+                        {"url": "https://www.youtube.com/watch?v=BBBBBBBBBBB", "title": "Two"}, None]}
+    assert playlist_entries(info) == [
+        ("https://www.youtube.com/watch?v=AAAAAAAAAAA", "One"),
+        ("https://www.youtube.com/watch?v=BBBBBBBBBBB", "Two"),
+    ]

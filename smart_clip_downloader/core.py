@@ -14,6 +14,10 @@ from typing import Callable, Optional
 VIDEO_QUALITIES = ["144p", "240p", "360p", "480p", "720p", "1080p", "1440p", "2160p", "4320p"]
 AUDIO_QUALITIES = ["audio-64k", "audio-128k", "audio-192k", "audio-320k"]
 QUALITY_PRESETS = ["best"] + VIDEO_QUALITIES + AUDIO_QUALITIES
+VIDEO_CONTAINERS = ["mp4", "mkv", "webm"]
+AUDIO_FORMATS = ["mp3", "m4a", "opus", "wav", "flac"]
+DEFAULT_TEMPLATE = "%(title)s"
+_BAD_TEMPLATE = re.compile(r"(^|[\\/])\.\.([\\/]|$)")
 
 _TIME_RE = re.compile(r"^\s*(?:(\d+):)?(?:(\d+):)?(\d+(?:\.\d+)?)\s*$")
 
@@ -73,6 +77,15 @@ class ClipRequest:
     end: Optional[float] = None
     quality: str = "best"
     output_dir: str = "."
+    video_format: str = "mp4"
+    audio_format: str = "mp3"
+    subtitles: tuple = ()             # language codes, e.g. ("en", "hi")
+    embed_metadata: bool = True
+    embed_thumbnail: bool = False
+    rate_limit: Optional[str] = None  # e.g. "2M" (bytes/s, yt-dlp syntax)
+    cookies_browser: Optional[str] = None  # "chrome", "firefox", "edge" … for age-restricted videos
+    filename_template: str = DEFAULT_TEMPLATE
+    title: Optional[str] = None       # known title (from the preview), for the queue display
 
     def __post_init__(self) -> None:
         self.url = (self.url or "").strip()
@@ -86,6 +99,17 @@ class ClipRequest:
             raise ClipError("Give both start and end time, or neither for the full video")
         if self.start is not None and self.end <= self.start:
             raise ClipError("End time must be after start time")
+        if self.video_format not in VIDEO_CONTAINERS:
+            raise ClipError(f"Unknown video format '{self.video_format}'")
+        if self.audio_format not in AUDIO_FORMATS:
+            raise ClipError(f"Unknown audio format '{self.audio_format}'")
+        if self.rate_limit and not re.fullmatch(r"\d+(\.\d+)?[KMG]?", self.rate_limit.strip(), re.I):
+            raise ClipError("Rate limit must look like 500K, 2M or 1.5M")
+        tpl = (self.filename_template or DEFAULT_TEMPLATE).strip()
+        if _BAD_TEMPLATE.search(tpl) or tpl.startswith(("/", "\\")) or re.match(r"^[A-Za-z]:", tpl):
+            raise ClipError("File name template must be a relative name (no '..' or drive letters)")
+        self.filename_template = tpl
+        self.subtitles = tuple(x.strip() for x in self.subtitles if x and x.strip())
 
     @property
     def is_clip(self) -> bool:
@@ -154,7 +178,7 @@ def format_selector(quality: str) -> str:
 def output_template(req: ClipRequest) -> str:
     """File name pattern. Clips get their time range appended so several clips
     of the same video never overwrite each other."""
-    name = "%(title)s"
+    name = req.filename_template or DEFAULT_TEMPLATE
     if req.is_clip:
         name += f" [{format_timestamp(req.start).replace(':', '.')}-{format_timestamp(req.end).replace(':', '.')}]"
     return os.path.join(req.output_dir or ".", f"{name}.%(ext)s")
@@ -176,13 +200,32 @@ def build_ydl_options(
         "progress_hooks": [progress_hook] if progress_hook else [],
     }
 
+    pps: list[dict] = []
     if req.is_audio:
         kbps = req.quality.split("-")[1].rstrip("k")
-        opts["postprocessors"] = [
-            {"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": kbps}
-        ]
+        pps.append({"key": "FFmpegExtractAudio", "preferredcodec": req.audio_format, "preferredquality": kbps})
     else:
-        opts["merge_output_format"] = "mp4"
+        opts["merge_output_format"] = req.video_format
+
+    if req.subtitles and not req.is_audio:
+        opts.update(writesubtitles=True, writeautomaticsub=True, subtitleslangs=list(req.subtitles),
+                    subtitlesformat="srt/vtt/best")
+        pps.append({"key": "FFmpegSubtitlesConvertor", "format": "srt"})
+        if req.video_format in ("mp4", "mkv"):
+            pps.append({"key": "FFmpegEmbedSubtitle", "already_have_subtitle": False})
+    if req.embed_metadata:
+        pps.append({"key": "FFmpegMetadata", "add_metadata": True})
+    if req.embed_thumbnail and (req.is_audio and req.audio_format in ("mp3", "m4a", "flac")
+                                or not req.is_audio and req.video_format in ("mp4", "mkv")):
+        opts["writethumbnail"] = True
+        pps.append({"key": "EmbedThumbnail", "already_have_thumbnail": False})
+    if pps:
+        opts["postprocessors"] = pps
+    if req.rate_limit:
+        opts["ratelimit"] = parse_rate(req.rate_limit)
+    if req.cookies_browser:
+        opts["cookiesfrombrowser"] = (req.cookies_browser,)
+    opts["continuedl"] = True  # resume .part files after Pause → Resume
 
     if req.is_clip:
         # This is the correct yt-dlp API for partial downloads; the previous
@@ -229,3 +272,118 @@ def progress_from_hook(d: dict) -> Progress:
         eta=format_timestamp(eta) if eta is not None else "",
         status="downloading",
     )
+
+
+# --------------------------------------------------------------------------- helpers v3
+def parse_rate(text: str) -> int:
+    """'500K' -> 512000, '2M' -> 2097152 (bytes per second)."""
+    m = re.fullmatch(r"(\d+(?:\.\d+)?)([KMG]?)", text.strip(), re.I)
+    if not m:
+        raise ClipError(f"Invalid rate '{text}'")
+    mult = {"": 1, "K": 1024, "M": 1024**2, "G": 1024**3}[m.group(2).upper()]
+    return int(float(m.group(1)) * mult)
+
+
+_YT_ID = re.compile(r"(?:v=|youtu\.be/|shorts/|embed/|live/)([A-Za-z0-9_-]{11})")
+
+
+def video_id(url: str) -> Optional[str]:
+    m = _YT_ID.search(url or "")
+    return m.group(1) if m else None
+
+
+def is_playlist_url(url: str) -> bool:
+    return bool(re.search(r"[?&]list=[A-Za-z0-9_-]+", url or "")) or "/playlist" in (url or "")
+
+
+URL_IN_TEXT = re.compile(r"https?://(?:www\.|m\.|music\.)?(?:youtube\.com|youtu\.be)/\S+")
+
+
+def extract_urls(text: str) -> list[str]:
+    """YouTube links found in arbitrary text (drag & drop, clipboard)."""
+    seen, out = set(), []
+    for u in URL_IN_TEXT.findall(text or ""):
+        u = u.rstrip(").,;'\"")
+        if u not in seen:
+            seen.add(u)
+            out.append(u)
+    return out
+
+
+@dataclass
+class VideoInfo:
+    url: str
+    title: str
+    channel: str = ""
+    duration: Optional[float] = None
+    thumbnail: Optional[str] = None
+    heights: list = field(default_factory=list)
+    subtitles: list = field(default_factory=list)
+    is_live: bool = False
+    view_count: Optional[int] = None
+    upload_date: Optional[str] = None
+
+    @property
+    def best_height(self) -> Optional[int]:
+        return max(self.heights) if self.heights else None
+
+    def available_qualities(self) -> list[str]:
+        """Presets that make sense for this video (others would fall back anyway)."""
+        if not self.heights:
+            return QUALITY_PRESETS
+        top = self.best_height
+        vids = [q for q in VIDEO_QUALITIES if int(q[:-1]) <= top]
+        return ["best"] + vids + AUDIO_QUALITIES
+
+
+def parse_info(info: dict, url: str = "") -> VideoInfo:
+    """Turn a yt-dlp info dict into a small, display-friendly object."""
+    heights = sorted({f.get("height") for f in info.get("formats") or [] if f.get("height") and f.get("vcodec") != "none"})
+    subs = sorted(set((info.get("subtitles") or {}).keys()) | set((info.get("automatic_captions") or {}).keys()))
+    thumb = info.get("thumbnail")
+    if not thumb and info.get("thumbnails"):
+        thumb = info["thumbnails"][-1].get("url")
+    return VideoInfo(
+        url=info.get("webpage_url") or url,
+        title=info.get("title") or "Untitled",
+        channel=info.get("channel") or info.get("uploader") or "",
+        duration=info.get("duration"),
+        thumbnail=thumb,
+        heights=heights,
+        subtitles=subs,
+        is_live=bool(info.get("is_live")),
+        view_count=info.get("view_count"),
+        upload_date=info.get("upload_date"),
+    )
+
+
+def playlist_entries(info: dict) -> list[tuple[str, str]]:
+    """(url, title) for every entry of a flat-extracted playlist."""
+    out = []
+    for e in info.get("entries") or []:
+        if not e:
+            continue
+        url = e.get("url") or e.get("webpage_url")
+        if url and not url.startswith("http") and e.get("id"):
+            url = f"https://www.youtube.com/watch?v={e['id']}"
+        if not url and e.get("id"):
+            url = f"https://www.youtube.com/watch?v={e['id']}"
+        if url:
+            out.append((url, e.get("title") or url))
+    return out
+
+
+def human_duration(seconds: Optional[float]) -> str:
+    if seconds is None:
+        return "–"
+    s = format_timestamp(seconds)
+    return s[3:] if s.startswith("00:") else s
+
+
+def human_count(n: Optional[int]) -> str:
+    if n is None:
+        return ""
+    for unit, div in (("B", 1e9), ("M", 1e6), ("K", 1e3)):
+        if n >= div:
+            return f"{n / div:.1f}".rstrip("0").rstrip(".") + unit
+    return str(n)
