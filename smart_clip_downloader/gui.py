@@ -201,7 +201,11 @@ class MainWindow(QWidget):
         # Queue
         self.table = QTableWidget(0, len(COLS))
         self.table.setHorizontalHeaderLabels(COLS)
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.Stretch)
+        for col in (1, 2, 4, 5):
+            header.setSectionResizeMode(col, QHeaderView.ResizeToContents)
+        self.table.setColumnWidth(3, 160)
         self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         layout.addWidget(self.table, 1)
