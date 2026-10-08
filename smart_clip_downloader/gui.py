@@ -375,7 +375,7 @@ class MainWindow(QWidget):
         self.history.clear()
         self._refresh_history()
 
-    def closeEvent(self, event):  # noqa: N802 - Qt naming
+    def closeEvent(self, event):  # Qt override
         self.cancel_event.set()
         self.pool.waitForDone(3000)
         super().closeEvent(event)
