@@ -46,6 +46,9 @@ def stylesheet(name: str) -> str:
     QLineEdit#urlBar {{ font-size: 11pt; padding: 9px 12px; border-radius: 10px; }}
     QLineEdit[invalid="true"] {{ border: 1px solid {c['err']}; }}
     QComboBox::drop-down {{ border: 0; width: 24px; }}
+    QSpinBox::up-button, QSpinBox::down-button {{ border: 0; width: 18px; background: transparent; }}
+    QSpinBox::up-arrow {{ image: url({ICONS}/chevron-up-{'dark' if name == 'dark' else 'light'}.svg); width: 10px; height: 10px; }}
+    QSpinBox::down-arrow {{ image: url({ICONS}/chevron-{'dark' if name == 'dark' else 'light'}.svg); width: 10px; height: 10px; }}
     QComboBox::down-arrow {{ image: url({ICONS}/chevron-{'dark' if name == 'dark' else 'light'}.svg); width: 12px; height: 12px; margin-right: 8px; }}
     QComboBox QAbstractItemView {{ background: {c['surface']}; border: 1px solid {c['line2']}; selection-background-color: {c['brandSoft']}; selection-color: {c['ink']}; }}
     QPushButton {{
