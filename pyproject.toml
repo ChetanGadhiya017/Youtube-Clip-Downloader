@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "smart-clip-downloader"
-version = "2.0.0"
+version = "3.0.0"
 description = "Desktop app to download exact time-range clips (or full videos / MP3 audio) from YouTube, in batches and in parallel."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -13,16 +13,19 @@ authors = [{ name = "Chetan Gadhiya" }]
 dependencies = ["PyQt5>=5.15", "yt-dlp>=2025.1.1"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.5"]
+dev = ["pytest>=8", "pytest-qt>=4.4", "ruff>=0.5", "pyinstaller>=6.6"]
 
 [project.gui-scripts]
 smart-clip-downloader = "smart_clip_downloader.gui:main"
+
+[project.scripts]
+smart-clip = "smart_clip_downloader.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["smart_clip_downloader*"]
 
 [tool.setuptools.package-data]
-smart_clip_downloader = ["assets/icons/*.png"]
+smart_clip_downloader = ["assets/icons/*.png", "assets/icons/*.svg"]
 
 [tool.ruff]
 line-length = 130

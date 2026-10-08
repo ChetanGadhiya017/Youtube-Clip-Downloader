@@ -194,3 +194,11 @@ def test_playlist_entries():
         ("https://www.youtube.com/watch?v=AAAAAAAAAAA", "One"),
         ("https://www.youtube.com/watch?v=BBBBBBBBBBB", "Two"),
     ]
+
+
+def test_cli_validation_and_help(capsys):
+    from smart_clip_downloader.cli import main
+
+    assert main([]) == 2
+    assert main(["https://youtu.be/x", "--start", "2:00", "--end", "1:00"]) == 2
+    assert "End time must be after" in capsys.readouterr().err
