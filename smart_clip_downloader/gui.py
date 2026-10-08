@@ -513,7 +513,7 @@ class MainWindow(QMainWindow):
                 output_dir=folder,
                 video_format=self.vformat.currentText(),
                 audio_format=self.aformat.currentText(),
-                subtitles=tuple(s.get("subtitle_langs").split(",")) if self.subs_cb.isChecked() and self.subs_cb.isEnabled() else (),
+                subtitles=self._subtitle_langs(),
                 embed_metadata=s.get("embed_metadata"),
                 embed_thumbnail=s.get("embed_thumbnail"),
                 rate_limit=s.get("rate_limit") or None,
@@ -525,6 +525,11 @@ class MainWindow(QMainWindow):
             if not silent:
                 QMessageBox.warning(self, "Can't add this download", str(exc))
             return None
+
+    def _subtitle_langs(self) -> tuple:
+        if self.subs_cb.isChecked() and self.subs_cb.isEnabled():
+            return tuple(self.settings.get("subtitle_langs").split(","))
+        return ()
 
     def add_current(self, front: bool = False) -> None:
         url = self.url.text().strip()
@@ -767,7 +772,8 @@ class MainWindow(QMainWindow):
             self._open_path(h["folder"])
 
     def _clear_history(self) -> None:
-        if QMessageBox.question(self, "Clear history", "Remove all history entries? Your files are not deleted.") == QMessageBox.Yes:
+        ask = QMessageBox.question(self, "Clear history", "Remove all history entries? Your files are not deleted.")
+        if ask == QMessageBox.Yes:
             self.history.clear()
             self._refresh_history()
 
@@ -843,7 +849,8 @@ class MainWindow(QMainWindow):
         running = [j for j in self.jobs.values() if j.worker]
         if running and QMessageBox.question(
                 self, "Downloads in progress",
-                f"{len(running)} download(s) are running. Pause them and quit? Full videos resume next time you add them.") != QMessageBox.Yes:
+                f"{len(running)} download(s) are running. Pause them and quit? "
+                "Full videos resume next time you add them.") != QMessageBox.Yes:
             event.ignore()
             return
         for j in running:
