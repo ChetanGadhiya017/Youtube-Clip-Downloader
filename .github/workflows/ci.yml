@@ -7,19 +7,24 @@ on:
 
 jobs:
   test:
-    name: Lint & test (Python ${{ matrix.python }})
+    name: Lint & test (${{ matrix.os }}, Python ${{ matrix.python }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
         python: ["3.10", "3.12"]
+    env:
+      QT_QPA_PLATFORM: offscreen
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
           cache: pip
-      - run: pip install -r requirements.txt pytest ruff
+      - name: Qt runtime libraries (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libxkbcommon0 libdbus-1-3
+      - run: pip install -r requirements.txt pytest pytest-qt ruff
       - run: ruff check .
       - run: pytest -q

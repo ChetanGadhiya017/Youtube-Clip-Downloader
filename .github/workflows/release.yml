@@ -1,0 +1,32 @@
+name: Release
+
+# Push a tag like v3.0.0 to build the Windows app and attach it to a GitHub Release.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt pyinstaller
+      - run: pyinstaller SmartClipDownloader.spec --noconfirm
+      - name: Zip
+        run: Compress-Archive -Path dist/SmartClipDownloader/* -DestinationPath SmartClipDownloader-windows.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SmartClipDownloader-windows
+          path: SmartClipDownloader-windows.zip
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: SmartClipDownloader-windows.zip
+          generate_release_notes: true
